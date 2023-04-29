@@ -49,3 +49,14 @@ wheelhouse/
 # amalgamation files
 src/c4/c4core_all.hpp
 src_singleheader/
+
+# add myself sonder
+#File
+**/bin/
+bin-int/
+#vsstudio file
+.vs/
+**.sln
+**.vcxproj
+**.vcxproj.filters
+**.vcxproj.user
