@@ -74,6 +74,7 @@ void sample_emit_to_container();    ///< emit to memory, eg a string or vector-l
 void sample_emit_to_stream();       ///< emit to a stream, eg std::ostream
 void sample_emit_to_file();         ///< emit to a FILE*
 void sample_emit_nested_node();     ///< pick a nested node as the root when emitting
+void sample_emit_style();           ///< set the nodes to FLOW/BLOCK format
 void sample_json();                 ///< JSON parsing and emitting
 void sample_anchors_and_aliases();  ///< deal with YAML anchors and aliases
 void sample_tags();                 ///< deal with YAML type tags
@@ -109,6 +110,7 @@ int main()
     sample::sample_emit_to_stream();
     sample::sample_emit_to_file();
     sample::sample_emit_nested_node();
+    sample::sample_emit_style();
     sample::sample_json();
     sample::sample_anchors_and_aliases();
     sample::sample_tags();
@@ -125,6 +127,11 @@ int main()
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
+
+C4_SUPPRESS_WARNING_GCC_CLANG_PUSH
+C4_SUPPRESS_WARNING_GCC_CLANG("-Wcast-qual")
+C4_SUPPRESS_WARNING_GCC_CLANG("-Wold-style-cast")
+C4_SUPPRESS_WARNING_GCC("-Wuseless-cast")
 
 namespace sample {
 
@@ -151,6 +158,7 @@ struct CheckPredicate {
 /// a quick'n'dirty assertion to verify a predicate
 #define CHECK(predicate) do { if(!report_check(__LINE__, #predicate, (predicate))) { RYML_DEBUG_BREAK(); } } while(0)
 #endif
+
 
 //-----------------------------------------------------------------------------
 
@@ -344,15 +352,18 @@ void sample_quick_overview()
     // Deserializing: use operator>>
     {
         int foo = 0, bar0 = 0, bar1 = 0;
-        std::string john;
+        std::string john_str;
+        std::string bar_str;
         root["foo"] >> foo;
         root["bar"][0] >> bar0;
         root["bar"][1] >> bar1;
-        root["john"] >> john; // requires from_chars(std::string). see serialization samples below.
+        root["john"] >> john_str; // requires from_chars(std::string). see serialization samples below.
+        root["bar"] >> ryml::key(bar_str); // to deserialize the key, use the tag function ryml::key()
         CHECK(foo == 1);
         CHECK(bar0 == 2);
         CHECK(bar1 == 3);
-        CHECK(john == "doe");
+        CHECK(john_str == "doe");
+        CHECK(bar_str == "bar");
     }
 
 
@@ -866,6 +877,73 @@ void sample_substr()
         CHECK(s.right_of(FOO) == "barBAR");
     }
 
+    // printing a substr/csubstr using printf-like
+    {
+        ryml::csubstr s = "some substring";
+        ryml::csubstr some = s.first(4);
+        CHECK(some == "some");
+        CHECK(s == "some substring");
+        // To print a csubstr using printf(), use the %.*s format specifier:
+        {
+            char result[32] = {0};
+            std::snprintf(result, sizeof(result), "%.*s", (int)some.len, some.str);
+            printf("~~~%s~~~\n", result);
+            CHECK(ryml::to_csubstr((const char*)result) == "some");
+            CHECK(ryml::to_csubstr((const char*)result) == some);
+        }
+        // But NOTE: because this is a string view type, in general
+        // the C-string is NOT zero terminated.  So NEVER print it
+        // directly, or it will overflow past the end of the given
+        // substr, with a potential unbounded access.  For example,
+        // this is bad:
+        {
+            char result[32] = {0};
+            std::snprintf(result, sizeof(result), "%s", some.str); // ERROR! do not print the c-string directly
+            CHECK(ryml::to_csubstr((const char*)result) == "some substring");
+            CHECK(ryml::to_csubstr((const char*)result) == s);
+        }
+    }
+
+    // printing a substr/csubstr using ostreams
+    {
+        ryml::csubstr s = "some substring";
+        ryml::csubstr some = s.first(4);
+        CHECK(some == "some");
+        CHECK(s == "some substring");
+        // simple! just use plain operator<<
+        {
+            std::stringstream ss;
+            ss << s;
+            CHECK(ss.str() == "some substring"); // as expected
+            CHECK(ss.str() == s); // as expected
+        }
+        // But NOTE: because this is a string view type, in general
+        // the C-string is NOT zero terminated.  So NEVER print it
+        // directly, or it will overflow past the end of the given
+        // substr, with a potential unbounded access.  For example,
+        // this is bad:
+        {
+            std::stringstream ss;
+            ss << some.str; // ERROR! do not print the c-string directly
+            CHECK(ss.str() == "some substring"); // NOT "some"
+            CHECK(ss.str() == s); // NOT some
+        }
+        // this is also bad (the same)
+        {
+            std::stringstream ss;
+            ss << some.data(); // ERROR! do not print the c-string directly
+            CHECK(ss.str() == "some substring"); // NOT "some"
+            CHECK(ss.str() == s); // NOT some
+        }
+        // this is ok:
+        {
+            std::stringstream ss;
+            ss << some;
+            CHECK(ss.str() == "some"); // ok
+            CHECK(ss.str() == some); // ok
+        }
+    }
+
     // is_sub(),is_super()
     {
         ryml::csubstr foobar = "foobar";
@@ -1349,9 +1427,6 @@ void sample_substr()
         CHECK(ryml::csubstr("//0/1/2/"  ).gpop_right('/', skip_empty) ==     "1/2/"  );
         CHECK(ryml::csubstr("//0/1/2//" ).gpop_right('/', skip_empty) ==     "1/2//"  );
     }
-
-    // see the docs:
-    // https://c4core.docsforge.com/master/api/c4/basic_substring/
 }
 
 
@@ -2171,7 +2246,7 @@ void sample_formatting()
         ryml::formatrs(&vbuf, "and c={} seems about right", 2);
         CHECK(sbuf == "and c=2 seems about right");
         // with formatrs() it is also possible to append:
-        ryml::formatrs(ryml::append, &sbuf, ", and finally d={} - done", 3);
+        ryml::formatrs_append(&sbuf, ", and finally d={} - done", 3);
         CHECK(sbuf == "and c=2 seems about right, and finally d=3 - done");
     }
 
@@ -2243,7 +2318,7 @@ void sample_formatting()
         ryml::catrs(&vbuf, "and c=", 2, " seems about right");
         CHECK(sbuf == "and c=2 seems about right");
         // with catrs() it is also possible to append:
-        ryml::catrs(ryml::append, &sbuf, ", and finally d=", 3, " - done");
+        ryml::catrs_append(&sbuf, ", and finally d=", 3, " - done");
         CHECK(sbuf == "and c=2 seems about right, and finally d=3 - done");
     }
 
@@ -2333,7 +2408,7 @@ void sample_formatting()
         CHECK(ryml::to_csubstr(vbuf) == "a=0 and b=1 and c=2 and 45 and 67");
 
         // with catseprs() it is also possible to append:
-        ryml::catseprs(ryml::append, &sbuf, " well ", " --- a=0", "b=11", "c=12", 145, 167);
+        ryml::catseprs_append(&sbuf, " well ", " --- a=0", "b=11", "c=12", 145, 167);
         CHECK(sbuf == "a=0 and b=1 and c=2 and 45 and 67 --- a=0 well b=11 well c=12 well 145 well 167");
     }
 
@@ -2620,11 +2695,12 @@ V2h5IGlzIHlvdXIgY2hlZWsgc28gcGFsZT8=: 'Why is your cheek so pale?'
 SG93IGNoYW5jZSB0aGUgcm9zZXMgdGhlcmUgZG8gZmFkZSBzbyBmYXN0Pw==: 'How chance the roses there do fade so fast?'
 QmVsaWtlIGZvciB3YW50IG9mIHJhaW4sIHdoaWNoIEkgY291bGQgd2VsbCBiZXRlZW0gdGhlbSBmcm9tIHRoZSB0ZW1wZXN0IG9mIG15IGV5ZXMu: 'Belike for want of rain, which I could well beteem them from the tempest of my eyes.'
 )");
-    // to decode the val base64 and write the result to buf:
     char buf1_[128], buf2_[128];
-    ryml::substr buf1 = buf1_;  // this is where we will write the result
-    ryml::substr buf2 = buf2_;  // this is where we will write the result
-    for(auto c : cases)
+    ryml::substr buf1 = buf1_;  // this is where we will write the result (using >>)
+    ryml::substr buf2 = buf2_;  // this is where we will write the result (using deserialize_val()/deserialize_key())
+    std::string result = {}; // show also how to decode to a std::string
+    // to decode the val base64 and write the result to buf:
+    for(const text_and_base64 c : cases)
     {
         // write the decoded result into the given buffer
         tree[c.text] >> ryml::fmt::base64(buf1); // cannot know the needed size
@@ -2634,9 +2710,51 @@ QmVsaWtlIGZvciB3YW50IG9mIHJhaW4sIHdoaWNoIEkgY291bGQgd2VsbCBiZXRlZW0gdGhlbSBmcm9t
         CHECK(c.text.len == len);
         CHECK(buf1.first(len) == c.text);
         CHECK(buf2.first(len) == c.text);
+        //
+        // interop with std::string: using substr
+        result.clear(); // this is not needed. We do it just to show that the first call can fail.
+        len = tree[c.text].deserialize_val(ryml::fmt::base64(ryml::to_substr(result))); // returns the needed size
+        if(len > result.size()) // the size was not enough; resize and call again
+        {
+            result.resize(len);
+            len = tree[c.text].deserialize_val(ryml::fmt::base64(ryml::to_substr(result))); // returns the needed size
+        }
+        result.resize(len); // trim to the length of the decoded buffer
+        CHECK(result == c.text);
+        //
+        // interop with std::string: using blob
+        result.clear(); // this is not needed. We do it just to show that the first call can fail.
+        ryml::blob strblob(&result[0], result.size());
+        CHECK(strblob.buf == result.data());
+        CHECK(strblob.len == result.size());
+        len = tree[c.text].deserialize_val(ryml::fmt::base64(strblob)); // returns the needed size
+        if(len > result.size()) // the size was not enough; resize and call again
+        {
+            result.resize(len);
+            strblob = {&result[0], result.size()};
+            CHECK(strblob.buf == result.data());
+            CHECK(strblob.len == result.size());
+            len = tree[c.text].deserialize_val(ryml::fmt::base64(strblob)); // returns the needed size
+        }
+        result.resize(len); // trim to the length of the decoded buffer
+        CHECK(result == c.text);
+        //
+        // Note also these are just syntatic wrappers to simplify client code.
+        // You can call into the lower level functions without much effort:
+        result.clear(); // this is not needed. We do it just to show that the first call can fail.
+        ryml::csubstr encoded = tree[c.text].val();
+        CHECK(encoded == c.base64);
+        len = base64_decode(encoded, ryml::blob{&result[0], result.size()});
+        if(len > result.size()) // the size was not enough; resize and call again
+        {
+            result.resize(len);
+            len = base64_decode(encoded, ryml::blob{&result[0], result.size()});
+        }
+        result.resize(len); // trim to the length of the decoded buffer
+        CHECK(result == c.text);
     }
-    // to decode the val base64 and write the result to buf:
-    for(text_and_base64 c : cases)
+    // to decode the key base64 and write the result to buf:
+    for(const text_and_base64 c : cases)
     {
         // write the decoded result into the given buffer
         tree[c.base64] >> ryml::key(ryml::fmt::base64(buf1)); // cannot know the needed size
@@ -2646,6 +2764,47 @@ QmVsaWtlIGZvciB3YW50IG9mIHJhaW4sIHdoaWNoIEkgY291bGQgd2VsbCBiZXRlZW0gdGhlbSBmcm9t
         CHECK(c.text.len == len);
         CHECK(buf1.first(len) == c.text);
         CHECK(buf2.first(len) == c.text);
+        // interop with std::string: using substr
+        result.clear(); // this is not needed. We do it just to show that the first call can fail.
+        len = tree[c.base64].deserialize_key(ryml::fmt::base64(ryml::to_substr(result))); // returns the needed size
+        if(len > result.size()) // the size was not enough; resize and call again
+        {
+            result.resize(len);
+            len = tree[c.base64].deserialize_key(ryml::fmt::base64(ryml::to_substr(result))); // returns the needed size
+        }
+        result.resize(len); // trim to the length of the decoded buffer
+        CHECK(result == c.text);
+        //
+        // interop with std::string: using blob
+        result.clear(); // this is not needed. We do it just to show that the first call can fail.
+        ryml::blob strblob = {&result[0], result.size()};
+        CHECK(strblob.buf == result.data());
+        CHECK(strblob.len == result.size());
+        len = tree[c.base64].deserialize_key(ryml::fmt::base64(strblob)); // returns the needed size
+        if(len > result.size()) // the size was not enough; resize and call again
+        {
+            result.resize(len);
+            strblob = {&result[0], result.size()};
+            CHECK(strblob.buf == result.data());
+            CHECK(strblob.len == result.size());
+            len = tree[c.base64].deserialize_key(ryml::fmt::base64(strblob)); // returns the needed size
+        }
+        result.resize(len); // trim to the length of the decoded buffer
+        CHECK(result == c.text);
+        //
+        // Note also these are just syntatic wrappers to simplify client code.
+        // You can call into the lower level functions without much effort:
+        result.clear(); // this is not needed. We do it just to show that the first call can fail.
+        ryml::csubstr encoded = tree[c.base64].key();
+        CHECK(encoded == c.base64);
+        len = base64_decode(encoded, ryml::blob{&result[0], result.size()});
+        if(len > result.size()) // the size was not enough; resize and call again
+        {
+            result.resize(len);
+            len = base64_decode(encoded, ryml::blob{&result[0], result.size()});
+        }
+        result.resize(len); // trim to the length of the decoded buffer
+        CHECK(result == c.text);
     }
     // directly encode variables
     {
@@ -3263,6 +3422,57 @@ void sample_emit_nested_node()
 - many other
 - wonderful beers
 )");
+}
+
+
+//-----------------------------------------------------------------------------
+
+/** [experimental] pick flow/block style for certain nodes. */
+void sample_emit_style()
+{
+    ryml::Tree tree = ryml::parse_in_arena(R"(
+NodeOne:
+  - key: a
+    desc: b
+    class: c
+    number: d
+  - key: e
+    desc: f
+    class: g
+    number: h
+  - key: i
+    desc: j
+    class: k
+    number: l
+)");
+    // ryml uses block style by default:
+    CHECK(ryml::emitrs_yaml<std::string>(tree) == R"(NodeOne:
+  - key: a
+    desc: b
+    class: c
+    number: d
+  - key: e
+    desc: f
+    class: g
+    number: h
+  - key: i
+    desc: j
+    class: k
+    number: l
+)");
+    // you can override the emit style of individual nodes:
+    for(ryml::NodeRef child : tree["NodeOne"].children())
+        child |= ryml::_WIP_STYLE_FLOW_SL; // flow, single-line
+    CHECK(ryml::emitrs_yaml<std::string>(tree) == R"(NodeOne:
+  - {key: a,desc: b,class: c,number: d}
+  - {key: e,desc: f,class: g,number: h}
+  - {key: i,desc: j,class: k,number: l}
+)");
+    tree["NodeOne"] |= ryml::_WIP_STYLE_FLOW_SL;
+    CHECK(ryml::emitrs_yaml<std::string>(tree) == R"(NodeOne: [{key: a,desc: b,class: c,number: d},{key: e,desc: f,class: g,number: h},{key: i,desc: j,class: k,number: l}]
+)");
+    tree.rootref() |= ryml::_WIP_STYLE_FLOW_SL;
+    CHECK(ryml::emitrs_yaml<std::string>(tree) == R"({NodeOne: [{key: a,desc: b,class: c,number: d},{key: e,desc: f,class: g,number: h},{key: i,desc: j,class: k,number: l}]})");
 }
 
 
@@ -4159,3 +4369,5 @@ void file_put_contents(const char *filename, const char *buf, size_t sz, const c
 C4_SUPPRESS_WARNING_MSVC_POP
 
 } // namespace sample
+
+C4_SUPPRESS_WARNING_GCC_CLANG_POP

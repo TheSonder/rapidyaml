@@ -17,6 +17,7 @@ C4_SUPPRESS_WARNING_MSVC_PUSH
 C4_SUPPRESS_WARNING_MSVC(4251) // needs to have dll-interface to be used by clients of struct
 C4_SUPPRESS_WARNING_MSVC(4296) // expression is always 'boolean_value'
 C4_SUPPRESS_WARNING_GCC_CLANG_PUSH
+C4_SUPPRESS_WARNING_GCC_CLANG("-Wold-style-cast")
 C4_SUPPRESS_WARNING_GCC("-Wtype-limits")
 
 
@@ -169,7 +170,7 @@ typedef enum : type_bits {
     DOCVAL  = DOC|VAL,
     _KEYMASK = KEY | KEYQUO | KEYANCH | KEYREF | KEYTAG,
     _VALMASK = VAL | VALQUO | VALANCH | VALREF | VALTAG,
-    // these flags are from a work in progress and should not be used yet
+    // these flags are from a work in progress and should be used with care
     _WIP_STYLE_FLOW_SL = c4bit(14), ///< mark container with single-line flow format (seqs as '[val1,val2], maps as '{key: val, key2: val2}')
     _WIP_STYLE_FLOW_ML = c4bit(15), ///< mark container with multi-line flow format (seqs as '[val1,\nval2], maps as '{key: val,\nkey2: val2}')
     _WIP_STYLE_BLOCK   = c4bit(16), ///< mark container with block format (seqs as '- val\n', maps as 'key: val')

@@ -8,7 +8,6 @@
 #include <vector>
 #include <iostream>
 
-#include "./libyaml.hpp"
 #include <benchmark/benchmark.h>
 
 // warning suppressions for thirdparty code
@@ -31,6 +30,7 @@
 #   pragma clang diagnostic ignored "-Wshadow"
 #   pragma clang diagnostic ignored "-Wsign-conversion"
 #   pragma clang diagnostic ignored "-Wconversion"
+#   pragma clang diagnostic ignored "-Wold-style-cast"
 #   if __clang_major__ >= 8
 #       pragma clang diagnostic ignored "-Wimplicit-int-conversion"
 #   endif
@@ -45,10 +45,12 @@
 #   pragma GCC diagnostic ignored "-Wuseless-cast"
 #   pragma GCC diagnostic ignored "-Wconversion"
 #   pragma GCC diagnostic ignored "-Wsign-conversion"
+#   pragma GCC diagnostic ignored "-Wold-style-cast"
 #   if __GNUC__ >= 8
 #       pragma GCC diagnostic ignored "-Wclass-memaccess" // rapidjson/document.h:1952:24
 #   endif
 #endif
+#include "./libyaml.hpp"
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>

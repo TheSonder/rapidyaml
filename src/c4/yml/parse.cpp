@@ -33,10 +33,12 @@
 #   pragma clang diagnostic push
 #   pragma clang diagnostic ignored "-Wtype-limits" // to remove a warning on an assertion that a size_t >= 0. Later on, this size_t will turn into a template argument, and then it can become < 0.
 #   pragma clang diagnostic ignored "-Wformat-nonliteral"
+#   pragma clang diagnostic ignored "-Wold-style-cast"
 #elif defined(__GNUC__)
 #   pragma GCC diagnostic push
 #   pragma GCC diagnostic ignored "-Wtype-limits" // to remove a warning on an assertion that a size_t >= 0. Later on, this size_t will turn into a template argument, and then it can become < 0.
 #   pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#   pragma GCC diagnostic ignored "-Wold-style-cast"
 #   if __GNUC__ >= 7
 #       pragma GCC diagnostic ignored "-Wduplicated-branches"
 #   endif
@@ -632,7 +634,7 @@ bool Parser::_handle_unk()
         _line_progressed(2);
         return true;
     }
-    else if(rem.begins_with(": ") && !has_all(SSCL))
+    else if(rem.begins_with(": ") && !has_any(SSCL))
     {
         _c4dbgp("it's a map with an empty key");
         _move_key_anchor_to_val_anchor();
@@ -645,7 +647,7 @@ bool Parser::_handle_unk()
         _line_progressed(2);
         return true;
     }
-    else if(rem == ':' && !has_all(SSCL))
+    else if(rem == ':' && !has_any(SSCL))
     {
         _c4dbgp("it's a map with an empty key");
         _move_key_anchor_to_val_anchor();
@@ -666,12 +668,12 @@ bool Parser::_handle_unk()
     {
         return true;
     }
-    else if(has_all(SSCL))
+    else if(has_any(SSCL))
     {
         _c4dbgpf("there's a stored scalar: '{}'", m_state->scalar);
 
         csubstr saved_scalar;
-        bool is_quoted;
+        bool is_quoted = false;
         if(_scan_scalar_unk(&saved_scalar, &is_quoted))
         {
             rem = m_state->line_contents.rem;
@@ -716,6 +718,7 @@ bool Parser::_handle_unk()
             _start_map_unk(start_as_child); // wait for the val scalar to append the key-val pair
             _line_progressed(1); // advance only 1
         }
+        #ifdef RYML_NO_COVERAGE__TO_BE_DELETED
         else if(rem.begins_with('}'))
         {
             if(!has_all(RMAP|FLOW))
@@ -726,10 +729,13 @@ bool Parser::_handle_unk()
             {
                 _c4err("no scalar stored");
             }
-            _append_key_val(saved_scalar);
+            _append_key_val(saved_scalar, is_quoted);
             _stop_map();
             _line_progressed(1);
+            saved_scalar.clear();
+            is_quoted = false;
         }
+        #endif
         else if(rem.begins_with("..."))
         {
             _c4dbgp("got stream end '...'");
@@ -776,7 +782,7 @@ bool Parser::_handle_unk()
             _c4err("parse error");
         }
 
-        if( ! saved_scalar.empty())
+        if(is_quoted || (! saved_scalar.empty()))
         {
             _store_scalar(saved_scalar, is_quoted);
         }
@@ -811,7 +817,7 @@ bool Parser::_handle_unk()
                 _set_indentation(indentation);
                 _line_progressed(2); // call this AFTER saving the indentation
             }
-            else if(rem == ":")
+            else if(rem.begins_with(':'))
             {
                 _c4dbgpf("got a ':' next -- it's a map (as_child={})", start_as_child);
                 _push_level();
@@ -2778,20 +2784,34 @@ bool Parser::_scan_scalar_unk(csubstr *C4_RESTRICT scalar, bool *C4_RESTRICT quo
     }
     size_t pos = s.find(" #");
     if(pos != npos)
+    {
+        _c4dbgpf("RUNK: found ' #' at {}", pos);
         s = s.left_of(pos);
+    }
     pos = s.find(": ");
     if(pos != npos)
+    {
+        _c4dbgpf("RUNK: found ': ' at {}", pos);
         s = s.left_of(pos);
+    }
     else if(s.ends_with(':'))
+    {
+        _c4dbgp("RUNK: ends with ':'");
         s = s.left_of(s.len-1);
+    }
     _RYML_WITH_TAB_TOKENS(
     else if((pos = s.find(":\t")) != npos) // TABS
+    {
+        _c4dbgp("RUNK: ends with ':\\t'");
         s = s.left_of(pos);
-    )
+    })
     else
+    {
+        _c4dbgp("RUNK: trimming left of ,");
         s = s.left_of(s.first_of(','));
+    }
     s = s.trim(" \t");
-    _c4dbgpf("RUNK: scalar='{}'", s);
+    _c4dbgpf("RUNK: scalar=[{}]~~~{}~~~", s.len, s);
 
     if(s.empty())
         return false;
@@ -2802,11 +2822,11 @@ bool Parser::_scan_scalar_unk(csubstr *C4_RESTRICT scalar, bool *C4_RESTRICT quo
 
     if(_at_line_end() && s != '~')
     {
-        _c4dbgpf("at line end. curr='{}'", s);
+        _c4dbgpf("at line end. curr=[{}]~~~{}~~", s.len, s);
         s = _extend_scanned_scalar(s);
     }
 
-    _c4dbgpf("scalar was '{}'", s);
+    _c4dbgpf("scalar was [{}]~~~{}~~~", s.len, s);
 
     *scalar = s;
     *quoted = false;
@@ -3647,6 +3667,7 @@ void Parser::_start_map(bool as_child)
 
 void Parser::_start_map_unk(bool as_child)
 {
+    _c4dbgpf("start_map_unk (as child={})", as_child);
     if(!m_key_anchor_was_before)
     {
         _c4dbgpf("stash key anchor before starting map... '{}'", m_key_anchor);
@@ -3814,7 +3835,6 @@ NodeData* Parser::_append_val(csubstr val, flag_t quoted)
     _c4dbgpf("append val: '{}' to parent id={} (level={}){}", val, m_state->node_id, m_state->level, quoted ? " VALQUO!" : "");
     size_t nid = m_tree->append_child(m_state->node_id);
     m_tree->to_val(nid, val, additional_flags);
-
     _c4dbgpf("append val: id={} val='{}'", nid, m_tree->get(nid)->m_val.scalar);
     if( ! m_val_tag.empty())
     {
@@ -3834,7 +3854,6 @@ NodeData* Parser::_append_key_val(csubstr val, flag_t val_quoted)
         additional_flags |= KEYQUO;
     if(val_quoted)
         additional_flags |= VALQUO;
-
     csubstr key = _consume_scalar();
     _c4dbgpf("append keyval: '{}' '{}' to parent id={} (level={}){}{}", key, val, m_state->node_id, m_state->level, (additional_flags & KEYQUO) ? " KEYQUO!" : "", (additional_flags & VALQUO) ? " VALQUO!" : "");
     size_t nid = m_tree->append_child(m_state->node_id);
@@ -4041,7 +4060,7 @@ bool Parser::_handle_indentation()
         _RYML_CB_ASSERT(m_stack.m_callbacks, ind > m_state->indref);
         if(has_all(RMAP|RVAL))
         {
-            if(_is_scalar_next__rmap_val(remt) && remt.first_of(":?") == npos)
+            if(_is_scalar_next__rmap_val(remt) && (!remt.first_of_any(": ", "? ")) && (!remt.ends_with(":")))
             {
                 _c4dbgpf("actually it seems a value: '{}'", remt);
             }
@@ -4369,7 +4388,14 @@ csubstr Parser::_scan_block()
             // stop when the line is deindented and not empty
             if(lc.indentation < indentation && ( ! lc.rem.trim(" \t\r\n").empty()))
             {
-                _c4dbgpf("scanning block: indentation decreased ref={} thisline={}", indentation, lc.indentation);
+                if(raw_block.len)
+                {
+                    _c4dbgpf("scanning block: indentation decreased ref={} thisline={}", indentation, lc.indentation);
+                }
+                else
+                {
+                    _c4err("indentation decreased without any scalar");
+                }
                 break;
             }
             else if(indentation == 0)

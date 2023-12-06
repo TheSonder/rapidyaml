@@ -3,6 +3,133 @@
 namespace c4 {
 namespace yml {
 
+TEST(simple_map, issue361)
+{
+    {
+        const Tree t = parse_in_arena(R"(desc: foo bar)");
+        ASSERT_EQ(t["desc"].val(), "foo bar");
+    }
+    //
+    {
+        const Tree t = parse_in_arena(R"(desc:
+  foo bar)");
+        ASSERT_EQ(t["desc"].val(), "foo bar");
+    }
+    //
+    {
+        const Tree t = parse_in_arena(R"(desc: foo:bar)");
+        ASSERT_EQ(t["desc"].val(), "foo:bar");
+    }
+    //
+    {
+        const Tree t = parse_in_arena(R"(desc:
+  foo:bar)");
+        ASSERT_EQ(t["desc"].val(), "foo:bar");
+    }
+    //
+    {
+        const Tree t = parse_in_arena(R"(desc: Timecode in "HH:MM:SS:FF" format where the last ':' can be replaced by ',' or ';'.)");
+        ASSERT_EQ(t["desc"].val(), "Timecode in \"HH:MM:SS:FF\" format where the last ':' can be replaced by ',' or ';'.");
+    }
+    //
+    {
+        const Tree t = parse_in_arena(R"(desc:
+  Timecode in "HH:MM:SS:FF" format where the last ':' can be replaced by ',' or ';'.)");
+        ASSERT_EQ(t["desc"].val(), "Timecode in \"HH:MM:SS:FF\" format where the last ':' can be replaced by ',' or ';'.");
+    }
+    //
+    {
+        const Tree t = parse_in_arena(R"(value:
+  desc:
+    Timecode in "HH:MM:SS:FF" format where the last ':' can be replaced by ',' or ';'.)");
+        ASSERT_EQ(t["value"]["desc"].val(), "Timecode in \"HH:MM:SS:FF\" format where the last ':' can be replaced by ',' or ';'.");
+    }
+}
+
+TEST(simple_map, issue377)
+{
+    csubstr yaml = R"(
+const game::perception::PerceiveData:
+      PerceiveData: {default: nullptr}
+)";
+    test_check_emit_check(yaml, [](Tree const &t){
+        ASSERT_TRUE(t.rootref().has_child("const game::perception::PerceiveData"));
+        const ConstNodeRef cpd = t["const game::perception::PerceiveData"];
+        ASSERT_TRUE(cpd.is_map());
+        ASSERT_TRUE(cpd.has_child("PerceiveData"));
+        ASSERT_EQ(cpd["PerceiveData"].num_children(), 1u);
+        ASSERT_TRUE(cpd["PerceiveData"].has_child("default"));
+        ASSERT_EQ(cpd["PerceiveData"]["default"].val(), "nullptr");
+    });
+}
+
+TEST(simple_map, issue373)
+{
+    {
+        const Tree tree = parse_in_arena(R"({"": ""})");
+        ASSERT_EQ(tree.rootref().num_children(), 1u);
+        EXPECT_EQ(tree[0].key(), "");
+        EXPECT_EQ(tree[0].val(), "");
+        EXPECT_EQ(tree[""].key(), "");
+        EXPECT_EQ(tree[""].val(), "");
+    }
+    {
+        const Tree tree = parse_in_arena(R"("": "")");
+        ASSERT_EQ(tree.rootref().num_children(), 1u);
+        EXPECT_EQ(tree[0].key(), "");
+        EXPECT_EQ(tree[0].val(), "");
+        EXPECT_EQ(tree[""].key(), "");
+        EXPECT_EQ(tree[""].val(), "");
+    }
+    {
+        const Tree tree = parse_in_arena(R"({m: {"":""}})");
+        ASSERT_EQ(tree.rootref().num_children(), 1u);
+        EXPECT_EQ(tree["m"][0].key(), "");
+        EXPECT_EQ(tree["m"][0].val(), "");
+        EXPECT_EQ(tree["m"][""].key(), "");
+        EXPECT_EQ(tree["m"][""].val(), "");
+    }
+    {
+        const Tree tree = parse_in_arena(R"(m:
+    "a": ""
+)");
+        std::cout << tree;
+        ASSERT_EQ(tree.rootref().num_children(), 1u);
+        ASSERT_EQ(tree["m"].num_children(), 1u);
+        EXPECT_EQ(tree["m"][0].key(), "a");
+        EXPECT_EQ(tree["m"][0].val(), "");
+        EXPECT_EQ(tree["m"]["a"].key(), "a");
+        EXPECT_EQ(tree["m"]["a"].val(), "");
+    }
+    {
+        const Tree tree = parse_in_arena(R"(m:
+    "": ""
+)");
+        std::cout << tree;
+        ASSERT_EQ(tree.rootref().num_children(), 1u);
+        ASSERT_EQ(tree["m"].num_children(), 1u);
+        EXPECT_EQ(tree["m"][0].key(), "");
+        EXPECT_EQ(tree["m"][0].val(), "");
+        EXPECT_EQ(tree["m"][""].key(), "");
+        EXPECT_EQ(tree["m"][""].val(), "");
+    }
+    {
+        const Tree tree = parse_in_arena(R"(m:
+    "": ""
+n:
+    "": "a"
+)");
+        std::cout << tree;
+        ASSERT_EQ(tree.rootref().num_children(), 2u);
+        ASSERT_EQ(tree["m"].num_children(), 1u);
+        EXPECT_EQ(tree["m"][0].key(), "");
+        EXPECT_EQ(tree["m"][0].val(), "");
+        ASSERT_EQ(tree["n"].num_children(), 1u);
+        EXPECT_EQ(tree["n"][0].key(), "");
+        EXPECT_EQ(tree["n"][0].val(), "a");
+    }
+}
+
 TEST(simple_map, issue274)
 {
     Tree tree = parse_in_arena(R"(
@@ -766,8 +893,7 @@ h3 ,i3: val3 ,0003
 })",
     L{ // this is crazy...
         N(KEYVAL, "a0", /*"~"*/{}),
-        N("b0", "val0"),
-        N(KEYVAL, "0000 c0", /*"~"*/{}),
+        N("b0", "val0"), N(KEYVAL, "0000 c0", /*"~"*/{}),
         N("d0", "val0"), N(KEYVAL, "0000 e0", /*"~"*/{}),
         N("f0", "val0"), N(KEYVAL, "0000 h0", /*"~"*/{}),
         N("i0", "val0"), N(KEYVAL, "0000 a1", /*"~"*/{}),
